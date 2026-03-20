@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+.env
+data/raw/
+models/*.pkl
+models/*.pt
+.DS_Store
+mlruns/

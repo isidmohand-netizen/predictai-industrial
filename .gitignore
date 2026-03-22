@@ -6,3 +6,5 @@ models/*.pkl
 models/*.pt
 .DS_Store
 mlruns/
+mlflow.db
+notebooks/mlflow.db

@@ -61,3 +61,85 @@ if __name__ == "__main__":
     print("Sending sensor data to the API...")
     result = analyze_sensor_data(test_sensors)
     print(result)
+
+
+def generate_maintenance_report(sensor_readings: dict, predicted_rul: float, unit_id: int) -> str:
+    """
+    Generates a structured maintenance report combining ML prediction
+    and LLM analysis for a specific industrial unit.
+    
+    Args:
+        sensor_readings: dict of sensor names and their current values
+        predicted_rul: RUL predicted by the Random Forest model (in cycles)
+        unit_id: identifier of the industrial unit being analyzed
+    Returns:
+        str: structured maintenance report
+    """
+    
+    # Define alert level based on predicted RUL
+    # These thresholds are business decisions — adjustable per industry
+    if predicted_rul <= 20:
+        alert_level = "CRITICAL"
+    elif predicted_rul <= 50:
+        alert_level = "WARNING"
+    else:
+        alert_level = "NORMAL"
+    
+    # Build a rich prompt with full context
+    prompt = f"""You are analyzing industrial unit {unit_id}.
+
+MACHINE LEARNING PREDICTION:
+- Predicted RUL: {predicted_rul:.0f} cycles remaining before failure
+- Alert level: {alert_level}
+
+CURRENT SENSOR READINGS:
+{sensor_readings}
+
+Based on this data, provide a structured report with:
+1. Executive summary (2 sentences max)
+2. Critical sensors requiring attention
+3. Recommended actions with priority (P1/P2/P3)
+4. Estimated time window for maintenance intervention
+
+Be precise and actionable. Use technical language appropriate for a maintenance engineer."""
+
+    message = client.messages.create(
+        model="claude-opus-4-5",
+        max_tokens=800,
+        # System prompt defines the expert role
+        system="""You are a senior predictive maintenance engineer 
+        with expertise in turbofan engines and industrial equipment.
+        Always respond in English with clear, actionable recommendations.""",
+        messages=[
+            {"role": "user", "content": prompt}
+        ]
+    )
+    
+    return message.content[0].text
+if __name__ == "__main__":
+    
+    # Sample sensor readings from unit 1 near end of life
+    test_sensors = {
+        "sensor_2": 642.83,
+        "sensor_3": 1590.52,
+        "sensor_4": 1408.93,
+        "sensor_7": 554.37,
+        "sensor_9": 9065.25,
+        "sensor_11": 47.91,
+        "sensor_12": 521.72,
+        "sensor_14": 8138.62,
+        "sensor_17": 393,
+        "sensor_20": 39.06,
+        "sensor_21": 23.42
+    }
+    
+    # Simulate ML prediction — in week 3 this will come from the real model
+    predicted_rul = 18.0
+    unit_id = 42
+    
+    print(f"Generating maintenance report for unit {unit_id}...")
+    print(f"Predicted RUL : {predicted_rul} cycles — CRITICAL\n")
+    print("=" * 60)
+    
+    report = generate_maintenance_report(test_sensors, predicted_rul, unit_id)
+    print(report)

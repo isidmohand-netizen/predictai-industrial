@@ -28,15 +28,15 @@ import os
 # Project root — same logic as in the notebook
 ROOT = Path(__file__).parent.parent
 
-# Point MLflow to our local database
-mlflow.set_tracking_uri(f"sqlite:///{ROOT / 'mlflow.db'}")
+import pickle
 
-# Load the trained model once at startup — not on every request
-# Replace with your actual run ID from MLflow dashboard
-RUN_ID = "2fe31401f1ad4333a6e859ed1c8e99be"
-model = mlflow.sklearn.load_model(f"runs:/{RUN_ID}/random-forest-rul")
+# Load the model from pickle file — works both locally and on Render
+model_path = ROOT / "models" / "random_forest_rul.pkl"
 
-print(f"Model loaded successfully from run {RUN_ID}")
+with open(model_path, "rb") as f:
+    model = pickle.load(f)
+
+print(f"Model loaded successfully from {model_path}")
 # Input schema — defines exactly what data the API expects
 # Pydantic validates automatically : wrong type = clear error message
 # A single cycle reading for one sensor snapshot

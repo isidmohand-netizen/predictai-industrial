@@ -2,9 +2,9 @@ __pycache__/
 *.pyc
 .env
 data/raw/
-models/*.pkl
 models/*.pt
 .DS_Store
 mlruns/
 mlflow.db
 notebooks/mlflow.db
+models/*.pkl

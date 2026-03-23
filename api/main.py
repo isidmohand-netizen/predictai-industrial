@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from pydantic import BaseModel
-import mlflow.sklearn
+
 import pandas as pd
 import sys
 from pathlib import Path
@@ -72,7 +72,7 @@ def health_check():
     return {
         "status": "healthy",
         "model": "random-forest-rul",
-        "run_id": RUN_ID
+        "model_version": "light-20-trees"
     }
 
 

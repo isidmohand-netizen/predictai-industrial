@@ -63,6 +63,16 @@ predictai-industrial/
 └── requirements.txt
 ```
 
-## Author
 
+## Next steps
+
+The current production model is a lightweight Random Forest (20 trees, RMSE 20.96 cycles) optimized for deployment size and low latency. Planned improvements:
+
+- **LSTM bidirectional** — expected RMSE ~12 cycles (state of the art on CMAPSS FD001)
+- **XGBoost** — gradient boosting for better accuracy on tabular data
+- **Unit tests** — pytest coverage on features.py and API endpoints
+- **GitHub Actions CI** — automated testing and Docker build on every push
+- **Generalization** — train and evaluate on all 4 CMAPSS datasets (FD001-FD004)
+- **Monitoring** — Prometheus + Grafana dashboard for production metrics
+## Author
 Idir Sid Mohand — Data Scientist

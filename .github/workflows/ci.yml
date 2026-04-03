@@ -1,7 +1,4 @@
 # GitHub Actions CI Pipeline — PredictAI Industrial
-# Triggered on every push to main and every pull request
-# Runs : install dependencies → run pytest → report results
-
 name: CI Pipeline
 
 on:
@@ -15,21 +12,16 @@ jobs:
     runs-on: ubuntu-latest
     
     steps:
-      # Step 1 — Checkout the code from GitHub
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
-      # Step 2 — Set up Python 3.13
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.13'
 
-      # Step 3 — Install all dependencies from requirements.txt
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      # Step 4 — Run pytest on the tests/ folder
-      # If any test fails, the pipeline fails and GitHub sends an alert
       - name: Run tests
         run: pytest tests/ -v

@@ -12,9 +12,6 @@ from pathlib import Path
 # .parent.parent = project root
 sys.path.append(str(Path(__file__).parent.parent))
 
-# Now we can import from src/ as if we were at the project root
-from src.llm_client import generate_maintenance_report
-
 # Initialize the FastAPI application
 # title, description, version appear automatically in the Swagger docs
 app = FastAPI(
@@ -37,6 +34,20 @@ with open(model_path, "rb") as f:
     model = pickle.load(f)
 
 print(f"Model loaded successfully from {model_path}")
+import chromadb
+from sentence_transformers import SentenceTransformer
+
+# Load embedding model and ChromaDB at startup
+# Same logic as the ML model — load once, use on every request
+print("Loading RAG components...")
+embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
+
+chroma_client = chromadb.PersistentClient(
+    path=str(ROOT / "data" / "chroma_db")
+)
+collection = chroma_client.get_or_create_collection(name="maintenance_docs")
+
+print(f"RAG ready — {collection.count()} documents indexed")
 # Input schema — defines exactly what data the API expects
 # Pydantic validates automatically : wrong type = clear error message
 # A single cycle reading for one sensor snapshot
@@ -83,28 +94,26 @@ def health_check():
 @app.post("/predict")
 def predict(data: PredictInput):
     """
-    Receives unit history, builds features, returns RUL prediction.
+    Receives unit history, builds features, returns RUL prediction + RAG diagnosis.
     
     Args:
         data: PredictInput — unit_id + list of cycle readings
     Returns:
-        dict with predicted RUL, alert level
+        dict with predicted RUL, alert level, and RAG-grounded diagnosis
     """
     from src.features import build_features, FEATURE_COLS
 
-    # Convert history to dataframe
+    # Step 1 — Build features from sensor history
     records = [cycle.model_dump() for cycle in data.history]
     df = pd.DataFrame(records)
     df['unit_id'] = data.unit_id
-
-    # Build the 48 features — same logic as in the notebook
     df_features = build_features(df)
 
-    # Predict on the last cycle only — most recent state of the machine
+    # Step 2 — Predict RUL on the last cycle
     last_cycle = df_features.iloc[[-1]]
     predicted_rul = float(model.predict(last_cycle)[0])
 
-    # Determine alert level
+    # Step 3 — Determine alert level
     if predicted_rul <= 20:
         alert_level = "CRITICAL"
     elif predicted_rul <= 50:
@@ -112,13 +121,51 @@ def predict(data: PredictInput):
     else:
         alert_level = "NORMAL"
 
+    # Step 4 — RAG : retrieve relevant documentation
+    # Build query from the most anomalous sensors
+    query = f"Engine unit {data.unit_id} — RUL {predicted_rul:.0f} cycles — alert {alert_level}. Sensor anomalies detected."
+    
+    query_vector = embedding_model.encode(query).tolist()
+    results = collection.query(
+        query_embeddings=[query_vector],
+        n_results=3
+    )
+
+    # Step 5 — Build context from retrieved documents
+    context = ""
+    for i, (doc, metadata, distance) in enumerate(zip(
+        results['documents'][0],
+        results['metadatas'][0],
+        results['distances'][0]
+    )):
+        relevance = round((1 - distance) * 100, 1)
+        context += f"\n[Doc {i+1} — {metadata['source']} — Relevance: {relevance}%]\n{doc}\n"
+
+    # Step 6 — Generate diagnosis with Claude + RAG context
+    from src.llm_client import generate_maintenance_report
+    diagnosis = generate_maintenance_report(
+        sensor_readings={col: float(last_cycle[col].values[0]) 
+                        for col in ['sensor_2', 'sensor_3', 'sensor_4', 'sensor_7', 
+                                   'sensor_9', 'sensor_11', 'sensor_12', 'sensor_14',
+                                   'sensor_17', 'sensor_20', 'sensor_21']},
+        predicted_rul=predicted_rul,
+        unit_id=data.unit_id
+    )
+
     return {
         "unit_id": data.unit_id,
         "cycle": data.history[-1].cycle,
         "predicted_rul": round(predicted_rul, 1),
-        "alert_level": alert_level
+        "alert_level": alert_level,
+        "relevant_docs": [
+            {
+                "source": metadata['source'],
+                "relevance_pct": round((1 - distance) * 100, 1)
+            }
+            for metadata, distance in zip(results['metadatas'][0], results['distances'][0])
+        ],
+        "diagnosis": diagnosis
     }
-
 
 if __name__ == "__main__":
     import uvicorn

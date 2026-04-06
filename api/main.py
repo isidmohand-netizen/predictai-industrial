@@ -121,52 +121,57 @@ def predict(data: PredictInput):
     else:
         alert_level = "NORMAL"
 
-    # Step 4 — RAG : retrieve relevant documentation
-    # Build query from the most anomalous sensors
-    query = f"Engine unit {data.unit_id} — RUL {predicted_rul:.0f} cycles — alert {alert_level}. Sensor anomalies detected."
-    
-    query_vector = embedding_model.encode(query).tolist()
-    results = collection.query(
-        query_embeddings=[query_vector],
-        n_results=3
-    )
+   # Step 4 — RAG diagnosis only for WARNING and CRITICAL
+    # NORMAL status doesn't need LLM call — saves API costs and latency
+    diagnosis = None
+    relevant_docs = []
 
-    # Step 5 — Build context from retrieved documents
-    context = ""
-    for i, (doc, metadata, distance) in enumerate(zip(
-        results['documents'][0],
-        results['metadatas'][0],
-        results['distances'][0]
-    )):
-        relevance = round((1 - distance) * 100, 1)
-        context += f"\n[Doc {i+1} — {metadata['source']} — Relevance: {relevance}%]\n{doc}\n"
+    if alert_level in ["WARNING", "CRITICAL"]:
 
-    # Step 6 — Generate diagnosis with Claude + RAG context
-    from src.llm_client import generate_maintenance_report
-    diagnosis = generate_maintenance_report(
-        sensor_readings={col: float(last_cycle[col].values[0]) 
-                        for col in ['sensor_2', 'sensor_3', 'sensor_4', 'sensor_7', 
-                                   'sensor_9', 'sensor_11', 'sensor_12', 'sensor_14',
-                                   'sensor_17', 'sensor_20', 'sensor_21']},
-        predicted_rul=predicted_rul,
-        unit_id=data.unit_id
-    )
+        # Build query from sensor context
+        query = f"Engine unit {data.unit_id} — RUL {predicted_rul:.0f} cycles — alert {alert_level}. Sensor anomalies detected."
+        
+        # Retrieve relevant documents
+        query_vector = embedding_model.encode(query).tolist()
+        results = collection.query(
+            query_embeddings=[query_vector],
+            n_results=3
+        )
+
+        # Build relevant_docs list with corrected relevance score
+        # max(0, ...) prevents negative scores when distance > 1
+        relevant_docs = [
+            {
+                "source": metadata['source'],
+                "relevance_pct": max(0, round((1 - distance) * 100, 1))
+            }
+            for metadata, distance in zip(results['metadatas'][0], results['distances'][0])
+        ]
+
+        # Build context for the LLM
+        context = ""
+        for i, (doc, metadata) in enumerate(zip(results['documents'][0], results['metadatas'][0])):
+            context += f"\n[Doc {i+1} — {metadata['source']}]\n{doc}\n"
+
+        # Generate diagnosis with Claude
+        from src.llm_client import generate_maintenance_report
+        diagnosis = generate_maintenance_report(
+            sensor_readings={col: float(last_cycle[col].values[0])
+                            for col in ['sensor_2', 'sensor_3', 'sensor_4', 'sensor_7',
+                                       'sensor_9', 'sensor_11', 'sensor_12', 'sensor_14',
+                                       'sensor_17', 'sensor_20', 'sensor_21']},
+            predicted_rul=predicted_rul,
+            unit_id=data.unit_id
+        )
 
     return {
         "unit_id": data.unit_id,
         "cycle": data.history[-1].cycle,
         "predicted_rul": round(predicted_rul, 1),
         "alert_level": alert_level,
-        "relevant_docs": [
-            {
-                "source": metadata['source'],
-                "relevance_pct": round((1 - distance) * 100, 1)
-            }
-            for metadata, distance in zip(results['metadatas'][0], results['distances'][0])
-        ],
+        "relevant_docs": relevant_docs,
         "diagnosis": diagnosis
     }
-
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
